@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { getMustChangePassword, getUsername } from '@/api/http'
 import { Moon, Sunny } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -26,6 +27,15 @@ const changeForm = reactive({
 const changeLoading = ref(false)
 
 let pendingRedirect = ''
+
+onMounted(() => {
+  const force = route.query.force_change === '1'
+  if ((force || getMustChangePassword()) && auth.isLoggedIn.value) {
+    form.username = getUsername() || form.username
+    showChange.value = true
+    ElMessage.warning('请先修改默认密码后再使用平台')
+  }
+})
 
 async function onSubmit() {
   if (!form.username || !form.password) {

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -20,6 +21,20 @@ ALL_ACTIONS = ACTIONS_NO_PARAM | ACTIONS_CONTAINER | ACTIONS_SERVICE | ACTIONS_D
 
 DEPLOY_PATH_PREFIXES = ("/opt/projects/", "/data/apps/")
 MAX_CONTAINER_LOG_LINES = 1000
+
+
+def normalize_deploy_path(path: str) -> str | None:
+    """Unix-style whitelist path; reject traversal without OS-specific resolve."""
+    raw = str(path).replace("\\", "/").strip()
+    if not raw.startswith(DEPLOY_PATH_PREFIXES):
+        return None
+    parts = [p for p in raw.split("/") if p not in ("", ".")]
+    if any(p == ".." for p in parts):
+        return None
+    normalized = "/" + "/".join(parts)
+    if not normalized.startswith(DEPLOY_PATH_PREFIXES):
+        return None
+    return normalized
 
 
 def utcnow() -> datetime:
@@ -57,7 +72,7 @@ def _snapshot_names(snapshot: dict[str, Any] | None, key: str) -> set[str]:
         if isinstance(item, dict):
             if "name" in item:
                 names.add(str(item["name"]))
-            elif "path" in item:
+            if "path" in item:
                 names.add(str(item["path"]))
         elif isinstance(item, str):
             names.add(item)
@@ -128,18 +143,21 @@ def validate_command(
         path = params.get("path")
         if not path or not isinstance(path, str):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="params.path required")
-        normalized = path.replace("\\", "/").rstrip("/")
-        if not normalized.startswith(DEPLOY_PATH_PREFIXES):
+        normalized = normalize_deploy_path(path)
+        if not normalized:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 detail=f"path not in whitelist prefixes: {DEPLOY_PATH_PREFIXES}",
             )
         projects = _snapshot_names(snapshot, "projects")
-        if projects and normalized not in projects and path not in projects:
+        # Spec: params must exist in latest snapshot. Empty/missing snapshot => reject.
+        candidates = {normalized, path, str(Path(path))}
+        if not projects or not (candidates & projects):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 detail=f"project path not in latest snapshot: {path}",
             )
+        params["path"] = normalized
         return
 
 

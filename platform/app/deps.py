@@ -25,6 +25,16 @@ def get_current_user(
     return user
 
 
+def require_password_changed(user: User = Depends(get_current_user)) -> User:
+    """Admin APIs: block default-password sessions until change-password succeeds."""
+    if user.must_change_password:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="password change required",
+        )
+    return user
+
+
 def get_node_by_token(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -50,6 +60,7 @@ __all__ = [
     "get_node_by_token",
     "get_node_or_404",
     "latest_snapshot",
+    "require_password_changed",
     "serialize_pending",
     "utcnow",
 ]

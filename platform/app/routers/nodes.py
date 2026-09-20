@@ -6,7 +6,13 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import bearer_scheme, get_current_user, get_node_by_token, get_node_or_404, utcnow
+from app.deps import (
+    bearer_scheme,
+    get_node_by_token,
+    get_node_or_404,
+    require_password_changed,
+    utcnow,
+)
 from app.models import Command, Log, Metric, Node, ResourceSnapshot
 from app.schemas import (
     CommandCreate,
@@ -58,18 +64,33 @@ def register_node(
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict:
-    # First registration: Bearer must equal the pre-shared node token in body.
-    if credentials is None or credentials.credentials != body.token:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="bearer must match node token")
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing node token")
+    presented = credentials.credentials
     node = db.query(Node).filter(Node.node_id == body.node_id).first()
     now = utcnow()
-    if not node:
+    if node:
+        # Existing node: must prove CURRENT token. Never accept a stranger's bearer.
+        if presented != node.token:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid node token")
+        # Optional rotation: body.token may replace token only after proving old one.
+        if body.token and body.token != node.token:
+            conflict = db.query(Node).filter(Node.token == body.token).first()
+            if conflict and conflict.node_id != node.node_id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="token already used")
+            node.token = body.token
+    else:
+        # First registration: bearer must equal the pre-shared token being claimed.
+        if presented != body.token:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="bearer must match node token")
+        conflict = db.query(Node).filter(Node.token == body.token).first()
+        if conflict:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="token already used")
         node = Node(node_id=body.node_id, token=body.token, created_at=now)
     node.hostname = body.hostname
     node.ip = body.ip
     node.os = body.os
     node.agent_version = body.agent_version
-    node.token = body.token
     node.last_seen_at = now
     node.status = "online"
     db.add(node)
@@ -103,19 +124,26 @@ def heartbeat(
         )
 
     for item in body.logs or []:
+        level = str(item.get("level", "info")).lower()
+        if level not in {"info", "warn", "error"}:
+            level = "info"
         db.add(
             Log(
                 node_id=node_id,
-                level=str(item.get("level", "info")),
+                level=level,
                 content=str(item.get("content", "")),
                 timestamp=now,
             )
         )
 
     for item in body.command_results or []:
+        try:
+            cmd_id = int(item.get("id", 0))
+        except (TypeError, ValueError):
+            continue
         cmd = (
             db.query(Command)
-            .filter(Command.id == int(item.get("id", 0)), Command.node_id == node_id)
+            .filter(Command.id == cmd_id, Command.node_id == node_id)
             .first()
         )
         if not cmd:
@@ -131,6 +159,10 @@ def heartbeat(
         .order_by(Command.id.asc())
         .all()
     )
+    # Dispatch once: move to running so failed result-reporting cannot re-flood agents.
+    for cmd in pending:
+        cmd.status = "running"
+        db.add(cmd)
     db.add(node)
     db.commit()
     return HeartbeatOut(
@@ -160,7 +192,7 @@ def resource_snapshot(
 @router.get("", response_model=list[NodeOut])
 def list_nodes(
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_password_changed),
 ) -> list[NodeOut]:
     nodes = db.query(Node).order_by(Node.node_id.asc()).all()
     return [_node_out(n, _latest_metric(db, n.node_id)) for n in nodes]
@@ -170,7 +202,7 @@ def list_nodes(
 def node_detail(
     node_id: str,
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_password_changed),
 ) -> NodeDetailOut:
     node = get_node_or_404(node_id, db)
     out = _node_out(node, _latest_metric(db, node_id))
@@ -181,7 +213,7 @@ def node_detail(
 def node_resources(
     node_id: str,
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_password_changed),
 ) -> dict:
     get_node_or_404(node_id, db)
     snap = latest_snapshot(db, node_id)
@@ -197,7 +229,7 @@ def node_metrics(
     node_id: str,
     range: str = Query("1h", pattern="^(1h|6h|24h)$"),
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_password_changed),
 ) -> list[MetricOut]:
     get_node_or_404(node_id, db)
     hours = {"1h": 1, "6h": 6, "24h": 24}[range]
@@ -216,7 +248,7 @@ def node_logs(
     node_id: str,
     limit: int = Query(200, ge=1, le=1000),
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_password_changed),
 ) -> list[LogOut]:
     get_node_or_404(node_id, db)
     rows = (
@@ -234,7 +266,7 @@ def create_command(
     node_id: str,
     body: CommandCreate,
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_password_changed),
 ) -> CommandOut:
     node = get_node_or_404(node_id, db)
     params = body.params or {}
@@ -257,7 +289,7 @@ def list_commands(
     node_id: str,
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_password_changed),
 ) -> list[CommandOut]:
     get_node_or_404(node_id, db)
     rows = (

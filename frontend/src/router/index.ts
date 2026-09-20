@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { getToken } from '@/api/http'
+import { getMustChangePassword, getToken } from '@/api/http'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -53,7 +53,12 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const authed = !!getToken()
+  const mustChange = getMustChangePassword()
   if (to.meta.requiresAuth === false) {
+    // Default-password sessions must stay on login until change-password succeeds.
+    if (authed && mustChange) {
+      return true
+    }
     if (authed && to.name === 'login') {
       return { name: 'dashboard' }
     }
@@ -61,6 +66,9 @@ router.beforeEach((to) => {
   }
   if (!authed) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (mustChange) {
+    return { name: 'login', query: { force_change: '1', redirect: to.fullPath } }
   }
   return true
 })

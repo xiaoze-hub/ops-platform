@@ -49,8 +49,9 @@ app = FastAPI(title="Ops Platform", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
+    # Bearer-token APIs: no cookie credentials. Avoid allow_origins=* + credentials.
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

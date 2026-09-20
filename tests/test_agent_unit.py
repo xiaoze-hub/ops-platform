@@ -61,3 +61,27 @@ def test_collect_resources_empty_without_docker(monkeypatch):
     assert data["images"] == []
     assert data["services"] == []
     assert isinstance(data["projects"], list)
+
+
+def test_agent_rejects_path_traversal_project_deploy():
+    r = PlatformReporter(
+        base_url="http://x", node_id="n", token="t", project_deploy_enabled=True
+    )
+    result = r.execute_command(
+        "project_deploy", {"path": "/opt/projects/demo/../../etc"}
+    )
+    assert result["status"] == "failed"
+    assert "whitelist" in result["result"]
+
+
+def test_agent_rejects_container_not_in_snapshot():
+    r = PlatformReporter(base_url="http://x", node_id="n", token="t")
+    r._last_snapshot = {
+        "containers": [{"name": "only-this", "image": "x", "status": "Up"}],
+        "images": [],
+        "services": [],
+        "projects": [],
+    }
+    result = r.execute_command("container_restart", {"name": "other"})
+    assert result["status"] == "failed"
+    assert "snapshot" in result["result"]

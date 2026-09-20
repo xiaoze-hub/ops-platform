@@ -57,6 +57,7 @@ class PlatformReporter:
         self._thread: threading.Thread | None = None
         self._registered = False
         self._last_snapshot_at = 0.0
+        self._last_snapshot: dict[str, Any] = {}
         self._on_restart_agent: Any = None
 
     def set_restart_agent_handler(self, handler) -> None:
@@ -220,11 +221,24 @@ class PlatformReporter:
 
     def send_snapshot(self) -> None:
         snapshot = self.collect_resources()
+        self._last_snapshot = snapshot
         self._safe_post(
             f"/api/v1/nodes/{self.node_id}/resource-snapshot",
             {"snapshot": snapshot},
         )
         self._last_snapshot_at = time.time()
+
+    def _names_from_snapshot(self, key: str) -> set[str]:
+        items = (self._last_snapshot or {}).get(key) or []
+        names: set[str] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if "name" in item:
+                names.add(str(item["name"]))
+            if "path" in item:
+                names.add(str(item["path"]))
+        return names
 
     def execute_command(self, action: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         params = dict(params or {})
@@ -243,6 +257,9 @@ class PlatformReporter:
                 name = str(params.get("name") or "")
                 if not name:
                     return {"status": "failed", "result": "params.name required"}
+                known = self._names_from_snapshot("containers")
+                if known and name not in known:
+                    return {"status": "failed", "result": f"container not in snapshot: {name}"}
                 if action == "container_logs":
                     lines = int(params.get("lines") or 100)
                     lines = max(1, min(lines, MAX_CONTAINER_LOG_LINES))
@@ -257,6 +274,9 @@ class PlatformReporter:
                 name = str(params.get("name") or "")
                 if not name:
                     return {"status": "failed", "result": "params.name required"}
+                known = self._names_from_snapshot("services")
+                if known and name not in known:
+                    return {"status": "failed", "result": f"service not in snapshot: {name}"}
                 verb = {
                     "service_restart": "restart",
                     "service_stop": "stop",
@@ -269,12 +289,20 @@ class PlatformReporter:
                 if not self.project_deploy_enabled:
                     return {"status": "failed", "result": "project_deploy is disabled"}
                 path = str(params.get("path") or "")
-                if not path.startswith(DEPLOY_PATH_PREFIXES):
+                raw = path.replace("\\", "/").strip()
+                parts = [p for p in raw.split("/") if p not in ("", ".")]
+                if any(p == ".." for p in parts) or not raw.startswith(DEPLOY_PATH_PREFIXES):
                     return {"status": "failed", "result": "path not in whitelist"}
-                deploy_sh = Path(path) / "deploy.sh"
+                normalized = "/" + "/".join(parts)
+                if not normalized.startswith(DEPLOY_PATH_PREFIXES):
+                    return {"status": "failed", "result": "path not in whitelist"}
+                known = self._names_from_snapshot("projects")
+                if known and normalized not in known and path not in known:
+                    return {"status": "failed", "result": f"project not in snapshot: {path}"}
+                deploy_sh = Path(normalized) / "deploy.sh"
                 if not deploy_sh.is_file():
                     return {"status": "failed", "result": "deploy.sh not found"}
-                return self._run_cmd(["bash", str(deploy_sh)], cwd=path)
+                return self._run_cmd(["bash", str(deploy_sh)], cwd=normalized)
         except Exception as exc:
             return {"status": "failed", "result": str(exc)}
         return {"status": "failed", "result": f"unhandled action: {action}"}

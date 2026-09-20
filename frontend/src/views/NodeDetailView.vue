@@ -8,6 +8,7 @@ import type { CommandItem, LogItem, NodeInfo, ResourceSnapshotBody } from '@/api
 import MetricGauge from '@/components/MetricGauge.vue'
 import StatusLight from '@/components/StatusLight.vue'
 import { formatDateTime, formatPercent, isAbnormalMetric, isWindowsNode } from '@/utils/format'
+import { offlineDebouncer } from '@/utils/offline'
 
 const route = useRoute()
 const nodeId = computed(() => String(route.params.node_id || ''))
@@ -30,7 +31,11 @@ let ws: WebSocket | null = null
 const logBox = ref<HTMLElement | null>(null)
 
 const windowsNode = computed(() => isWindowsNode(node.value?.os))
-const displayOnline = computed(() => !!node.value?.online)
+const displayOnline = computed(() => {
+  const n = node.value
+  if (!n) return false
+  return offlineDebouncer.update(n.node_id, !!n.online)
+})
 const abnormal = computed(() => {
   const n = node.value
   if (!n) return false

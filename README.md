@@ -140,7 +140,7 @@ npm install
 npm run build   # 产出 frontend/dist
 ```
 
-构建完成后：取消 `nginx/Dockerfile` 中 `COPY frontend/dist ...` 的注释再重建 nginx 镜像。  
+`nginx/Dockerfile` 为多阶段构建：Node 构建 `frontend/dist` 后自动拷贝进 nginx 镜像，`docker compose build nginx` 即可，无需再改 Dockerfile。  
 **API-only 模式**无需前端也能完成 Agent 上报与指令联调。
 
 ### Windows 本地说明
@@ -303,7 +303,7 @@ server {
     }
 }
 
-# 如需 HTTP 跳转，按现有站点惯例添加 80 -> 380 重定向
+# 如需 HTTP 跳转，按现有站点惯例添加 80 -> 443 重定向
 ```
 
 生产检查清单：

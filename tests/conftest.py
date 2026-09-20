@@ -36,6 +36,12 @@ from app.main import app  # noqa: E402
 
 @pytest.fixture()
 def client():
+    os.environ["PROJECT_DEPLOY_ENABLED"] = "false"
+    import app.utils as utils
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    utils.settings = get_settings()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     with TestClient(app) as c:
@@ -50,7 +56,19 @@ def admin_token(client: TestClient) -> str:
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["must_change_password"] is True
-    return data["access_token"]
+    token = data["access_token"]
+    ch = client.post(
+        "/api/v1/auth/change-password",
+        json={"old_password": "admin123456", "new_password": "newpass12345"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert ch.status_code == 200
+    login2 = client.post(
+        "/api/v1/auth/login", json={"username": "admin", "password": "newpass12345"}
+    )
+    assert login2.status_code == 200
+    assert login2.json()["must_change_password"] is False
+    return login2.json()["access_token"]
 
 
 @pytest.fixture()

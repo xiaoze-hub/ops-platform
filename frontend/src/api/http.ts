@@ -69,6 +69,12 @@ http.interceptors.response.use(
         window.location.href = '/login'
       }
     }
+    if (status === 403 && /password change required/i.test(message)) {
+      setMustChangePassword(true)
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login?force_change=1'
+      }
+    }
     ElMessage.error(message)
     return Promise.reject(error)
   },
@@ -81,5 +87,7 @@ export function isProjectDeployEnabled(): boolean {
 export function buildWsLogsUrl(nodeId: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const base = import.meta.env.VITE_API_BASE || '/api/v1'
-  return `${proto}//${window.location.host}${base}/nodes/${encodeURIComponent(nodeId)}/logs`
+  const token = getToken()
+  const qs = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `${proto}//${window.location.host}${base}/nodes/${encodeURIComponent(nodeId)}/logs${qs}`
 }

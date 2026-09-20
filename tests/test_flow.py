@@ -18,6 +18,21 @@ def test_register_heartbeat_snapshot_command_result_chain(
     r = client.post("/api/v1/nodes/register", json=reg, headers=headers)
     assert r.status_code == 200, r.text
 
+    # admin_token fixture may still be must_change_password; change first if needed.
+    auth_probe = client.get("/api/v1/nodes", headers={"Authorization": f"Bearer {admin_token}"})
+    if auth_probe.status_code == 403:
+        ch = client.post(
+            "/api/v1/auth/change-password",
+            json={"old_password": "admin123456", "new_password": "newpass12345"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert ch.status_code == 200
+        login = client.post(
+            "/api/v1/auth/login", json={"username": "admin", "password": "newpass12345"}
+        )
+        admin_token = login.json()["access_token"]
+    auth = {"Authorization": f"Bearer {admin_token}"}
+
     r = client.post(
         "/api/v1/nodes/node-a/heartbeat",
         json={
@@ -47,7 +62,6 @@ def test_register_heartbeat_snapshot_command_result_chain(
     )
     assert r.status_code == 200, r.text
 
-    auth = {"Authorization": f"Bearer {admin_token}"}
     r = client.get("/api/v1/nodes", headers=auth)
     assert r.status_code == 200
     nodes = r.json()
@@ -73,6 +87,7 @@ def test_register_heartbeat_snapshot_command_result_chain(
     assert r.status_code == 200
     pending = r.json()["pending_commands"]
     assert pending and pending[0]["action"] == "container_restart"
+    assert pending[0]["params"]["name"] == "nginx"
 
     r = client.post(
         f"/api/v1/nodes/node-a/commands/{cmd['id']}/result",
@@ -99,6 +114,7 @@ def test_register_heartbeat_snapshot_command_result_chain(
     r = client.get("/api/v1/nodes/node-a/metrics?range=1h", headers=auth)
     assert r.status_code == 200
     assert len(r.json()) >= 1
+    assert r.json()[0]["disk_percent"] is not None
 
 
 def test_login_and_change_password(client: TestClient):
@@ -114,6 +130,9 @@ def test_login_and_change_password(client: TestClient):
     token = r.json()["access_token"]
     auth = {"Authorization": f"Bearer {token}"}
 
+    # Force-change enforced server-side before other admin APIs.
+    assert client.get("/api/v1/nodes", headers=auth).status_code == 403
+
     r = client.post(
         "/api/v1/auth/change-password",
         json={"old_password": "admin123456", "new_password": "newpass12345"},
@@ -126,6 +145,8 @@ def test_login_and_change_password(client: TestClient):
     )
     assert r.status_code == 200
     assert r.json()["must_change_password"] is False
+    auth2 = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    assert client.get("/api/v1/nodes", headers=auth2).status_code == 200
 
 
 def test_node_token_required(client: TestClient):
