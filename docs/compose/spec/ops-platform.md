@@ -3,7 +3,7 @@ feature: ops-platform
 status: delivered
 updated: 2026-09-20
 branch: ops/platform
-commits: 8edf67d..<HEAD_IMPLEMENTATION> # filled at delivery
+commits: 8edf67d..bec1dec # reviewed implementation; finalize/doc+residual in cce737d
 ---
 
 # 轻量级 Agent 管理平台（PostgreSQL 版）
