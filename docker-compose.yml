@@ -1,0 +1,99 @@
+# ops-platform local/dev compose
+# Services: db (PostgreSQL 16) / platform (FastAPI) / nginx (reverse proxy)
+#
+# Production on 国内机: do NOT open host ports for db; reuse existing nginx
+# for 80/443 instead of running this nginx on public ports (see README).
+# Copy .env.example -> .env and fill values before `docker compose up`.
+# Never commit real passwords/tokens.
+
+name: ops-platform
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ops-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-ops}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: ${DB_NAME:-ops_platform}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Production default: no host port. Platform reaches DB on Docker network.
+    # Local debug only — uncomment if you must connect from the host:
+    # ports:
+    #   - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - ops-net
+
+  platform:
+    build:
+      # Repo-root context: requirements.txt lives at root; app code at platform/app
+      context: .
+      dockerfile: platform/Dockerfile
+    image: ops-platform-api:local
+    container_name: ops-platform
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-ops}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      DB_NAME: ${DB_NAME:-ops_platform}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      PROJECT_DEPLOY_ENABLED: ${PROJECT_DEPLOY_ENABLED:-false}
+      METRICS_RETENTION_DAYS: ${METRICS_RETENTION_DAYS:-7}
+      LOGS_RETENTION_DAYS: ${LOGS_RETENTION_DAYS:-3}
+    volumes:
+      - appdata:/var/lib/ops-platform
+    # Local dev convenience: direct API on host 8081.
+    # Production: prefer not publishing this port; access via existing nginx.
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - ops-net
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    image: ops-platform-nginx:local
+    container_name: ops-nginx
+    restart: unless-stopped
+    depends_on:
+      platform:
+        condition: service_started
+    # Local dev: nginx on host 8080 -> container 80.
+    # Production on 国内机: do not bind 80/443 here; add a server block on
+    # the existing nginx (see README / nginx/nginx.conf comments).
+    ports:
+      - "8080:80"
+    networks:
+      - ops-net
+
+volumes:
+  pgdata:
+    name: ops-platform-pgdata
+  appdata:
+    name: ops-platform-appdata
+
+networks:
+  ops-net:
+    name: ops-platform-net
+    driver: bridge
