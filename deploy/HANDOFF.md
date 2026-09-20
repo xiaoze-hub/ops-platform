@@ -7,7 +7,8 @@
 
 | 形式 | 路径 / 说明 |
 |---|---|
-| 本地 bare git | `C:\Users\tianxiang\git\ops-platform.git`（master @ `6cc2b6e`） |
+| 本地 bare git | `C:\Users\tianxiang\git\ops-platform.git` |
+| **GitHub** | **https://github.com/xiaoze-hub/ops-platform**（`main` @ `2ce935e`，分支 `ops/platform`） |
 | 源码包 | `C:\Users\tianxiang\git\ops-platform-master.tar.gz` |
 | 工作副本 | `C:\Users\tianxiang\运维平台`（remote `ops-platform` → 上面 bare） |
 | 特性文档 | 仓库内 `docs/compose/spec/ops-platform.md`（status=delivered） |
@@ -36,7 +37,7 @@
 - `node_id` 建议：`domestic-cn` / `mini-host-win` / `hermes`
 - 节点 token：部署时现生成，写入国内机 `.env`/配置，**不入仓**
 
-## 待用户补充
+## 待补充
 
-- [ ] GitHub 空仓库 URL（用户建好后：`git remote add origin <url> && git push -u origin master`）
+- [x] GitHub 远端：https://github.com/xiaoze-hub/ops-platform
 - [ ] 国内机 SSH 可用身份（部署 agent 侧自行具备）
