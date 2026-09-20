@@ -99,7 +99,7 @@ class CommandOut(BaseModel):
     node_id: str
     action: str
     params: dict[str, Any]
-    status: str
+    status: str  # pending | running | done | failed
     result: str | None = None
     created_at: datetime
     finished_at: datetime | None = None

@@ -85,3 +85,11 @@ def test_agent_rejects_container_not_in_snapshot():
     result = r.execute_command("container_restart", {"name": "other"})
     assert result["status"] == "failed"
     assert "snapshot" in result["result"]
+
+
+def test_agent_fail_closed_when_snapshot_empty():
+    r = PlatformReporter(base_url="http://x", node_id="n", token="t")
+    r._last_snapshot = {}
+    result = r.execute_command("container_restart", {"name": "web"})
+    assert result["status"] == "failed"
+    assert "snapshot" in result["result"]

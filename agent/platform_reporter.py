@@ -258,7 +258,7 @@ class PlatformReporter:
                 if not name:
                     return {"status": "failed", "result": "params.name required"}
                 known = self._names_from_snapshot("containers")
-                if known and name not in known:
+                if not known or name not in known:
                     return {"status": "failed", "result": f"container not in snapshot: {name}"}
                 if action == "container_logs":
                     lines = int(params.get("lines") or 100)
@@ -275,7 +275,7 @@ class PlatformReporter:
                 if not name:
                     return {"status": "failed", "result": "params.name required"}
                 known = self._names_from_snapshot("services")
-                if known and name not in known:
+                if not known or name not in known:
                     return {"status": "failed", "result": f"service not in snapshot: {name}"}
                 verb = {
                     "service_restart": "restart",
@@ -297,7 +297,7 @@ class PlatformReporter:
                 if not normalized.startswith(DEPLOY_PATH_PREFIXES):
                     return {"status": "failed", "result": "path not in whitelist"}
                 known = self._names_from_snapshot("projects")
-                if known and normalized not in known and path not in known:
+                if not known or (normalized not in known and path not in known):
                     return {"status": "failed", "result": f"project not in snapshot: {path}"}
                 deploy_sh = Path(normalized) / "deploy.sh"
                 if not deploy_sh.is_file():
